@@ -1,0 +1,77 @@
+import pathlib
+import sys
+import os
+import urllib.request
+import subprocess
+
+
+class Logger:
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+
+    @classmethod
+    def color(cls, code, text) -> str:
+        return code + text + "\033[0m"
+
+    @classmethod
+    def error(cls, text):
+        sys.stdout.write(cls.color(cls.RED, "Error:") + " " + text + "\n")
+        sys.exit(1)
+
+    @classmethod
+    def progress(cls, text):
+        sys.stdout.write(cls.color(cls.YELLOW, "Progress") + " " + text + " ")
+
+    @classmethod
+    def success(cls):
+        sys.stdout.write(cls.color(cls.GREEN, "Done") + "\n")
+
+
+def check_version():
+    from platform import python_version_tuple
+    Logger.progress("Checking python version...")
+    MAJOR, MINOR, _ = python_version_tuple()
+    if int(MAJOR) != 3 or int(MINOR) < 9:
+        Logger.error("Incompatible Python version (must be ^3.9)")
+    else:
+        Logger.success()
+
+# TODO: implement
+# Keeps a filesystem API for everything else to modify from.
+
+
+class Store:
+    def __init__(self, root: pathlib.Path):
+        self.root = root
+        os.makedirs(self.root, exist_ok=True)
+
+    def symlink_texbld(self, version: str):
+        pass
+
+    def rollback_nightly_texbld(self):
+        pass
+
+
+class Installer:
+    def __init__(self):
+        self.install_path = pathlib.Path.home() / ".texbld"
+        os.makedirs(self.install_path, exist_ok=True)
+
+    def install_venv(self):
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        virtualenv_bootstrap_url = (
+            f"https://bootstrap.pypa.io/virtualenv/{python_version}/virtualenv.pyz"
+        )
+        (self.install_path / "virtualenv.pyz").write_bytes(
+            urllib.request.urlopen(virtualenv_bootstrap_url).read()
+        )
+
+    # download from github releases
+    def install_nightly(self):
+        pass
+
+    # use pypi
+    def install_stable(self, version: str):
+        pass
