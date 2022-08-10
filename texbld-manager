@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-import pathlib
+from pathlib import Path
 import sys
 import os
 import urllib.request
 import subprocess
-
+from dataclasses import dataclass
+import hashlib
 
 class Logger:
     RED = "\033[31m"
@@ -40,35 +41,22 @@ def check_version():
     else:
         Logger.success()
 
-# TODO: implement
-# Keeps a filesystem API for everything else to modify from.
-
-
-class Store:
-    def __init__(self, root: pathlib.Path):
-        self.root = root
-        os.makedirs(self.root, exist_ok=True)
-
-    def symlink_texbld(self, version: str):
-        pass
-
-    def rollback_nightly_texbld(self):
-        pass
-
 
 class Installer:
-    def __init__(self):
-        self.install_path = pathlib.Path.home() / ".texbld"
+    def __init__(self, install_path: Path):
+        self.install_path = install_path
         os.makedirs(self.install_path, exist_ok=True)
 
     def install_venv(self):
-        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        virtualenv_bootstrap_url = (
-            f"https://bootstrap.pypa.io/virtualenv/{python_version}/virtualenv.pyz"
-        )
-        (self.install_path / "virtualenv.pyz").write_bytes(
-            urllib.request.urlopen(virtualenv_bootstrap_url).read()
-        )
+        virtualenv_path = self.install_path / "virtualenv.pyz"
+        if not virtualenv_path.exists():
+            python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+            virtualenv_bootstrap_url = (
+                f"https://bootstrap.pypa.io/virtualenv/{python_version}/virtualenv.pyz"
+            )
+            virtualenv_path.write_bytes(
+                urllib.request.urlopen(virtualenv_bootstrap_url).read()
+            )
 
     # download from github releases
     def install_nightly(self):
