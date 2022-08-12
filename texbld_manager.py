@@ -5,9 +5,11 @@ import sys
 import os
 import urllib.request
 import subprocess
-from dataclasses import dataclass
-import hashlib
+import shutil
 import sqlite3
+
+LATEST_STABLE_VERSION = "0.3.0"
+
 
 class Logger:
     RED = "\033[31m"
@@ -52,7 +54,7 @@ def execute(cmd: list):
 
 class DB:
 
-    def __init__(self, root: Path | None=None):
+    def __init__(self, root: Path | None = None):
         if root is None:
             connection = sqlite3.connect(":memory:")
         else:
@@ -73,7 +75,7 @@ class DB:
 
     def __del__(self):
         self.close()
-    
+
     def initialize_db(self):
         self.cursor.executescript(
             """
@@ -89,11 +91,13 @@ class DB:
             """
         )
 
-    def add_nightly(self):
+    def add_nightly(self) -> int:
         self.cursor.execute("INSERT INTO pkgs(version) VALUES('nightly');")
+        return self.cursor.lastrowid or 0
 
-    def add_stable(self, version: str):
+    def add_stable(self, version: str = LATEST_STABLE_VERSION) -> int:
         self.cursor.execute("INSERT INTO pkgs(version) VALUES(?);", (version,))
+        return self.cursor.lastrowid or 0
 
     def get_by_id(self, identifier: int):
         return self.cursor.execute("""
@@ -103,17 +107,20 @@ class DB:
     def get_nightlies(self):
         return self.cursor.execute("""
             SELECT * FROM pkgs WHERE version='nightly' ORDER BY
-            created_at DESC, id DESC LIMIT 10;
+            used DESC, created_at DESC, id DESC
+            LIMIT 10;
         """).fetchall()
 
     def get_stables(self):
         return self.cursor.execute("""
-            SELECT * from pkgs WHERE version != 'nightly' ORDER BY created_at
-            DESC, id DESC
+            SELECT * from pkgs WHERE version != 'nightly' ORDER BY 
+            used DESC, created_at DESC, id DESC
             LIMIT 10;
         """).fetchall()
 
-    def remove_by_id(self, identifier: str):
+    def remove_by_id(self, identifier: int):
+        if not self.get_by_id(identifier):
+            Logger.error(f"TeXbld package with id {identifier} not found.")
         self.cursor.execute("DELETE FROM pkgs WHERE id=?;", (identifier,))
 
     def switch(self, identifier: int):
@@ -131,19 +138,22 @@ class DB:
                 WHERE id=?
             """, (identifier,))
 
-    def rollback(self):
+    def rollback(self) -> int:
         result = self.cursor.execute("""
             SELECT id,version FROM pkgs
                 WHERE used_at IS NOT NULL AND current=0
                 ORDER BY current DESC, used_at DESC, id DESC LIMIT 1;
         """).fetchone()
         if result:
-            identifier,version = result
+            identifier, version = result
             Logger.progress(f"Switching to texbld {identifier}-{version}...")
             self.switch(identifier)
             Logger.success()
+            return identifier
         else:
             Logger.error("Nothing to rollback to. Consider switching")
+            # unreachable
+            return -1
 
     def history(self):
         return self.cursor.execute("""
@@ -151,6 +161,64 @@ class DB:
                 WHERE used_at IS NOT NULL
                 ORDER BY current DESC, used_at DESC, id DESC LIMIT 20;
         """).fetchall()
+
+
+class Store:
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.db = DB(self.root)
+
+    def __del__(self):
+        self.db.close()
+
+    def texbld_symlink(self):
+        path = self.root / "bin" / "texbld"
+        os.makedirs(path.parent, exist_ok=True)
+        return path
+
+    def package_path(self, identifier: int):
+        return self.root / "store" / str(identifier)
+
+    def runner_path(self, identifier: int):
+        return self.package_path(identifier) / "texbld-run.sh"
+
+    def valid_package_identifier(self, identifier:int):
+        runner = self.runner_path(identifier)
+        # check a runner script is present and is executable.
+        return runner.is_file() and os.access(runner, os.X_OK)
+    
+    def invalid_identifier(self, identifier:int):
+        Logger.error(f"{self.package_path(identifier)} is invalid. Either roll back or switch.")
+
+    def prepare_stable(self, version=LATEST_STABLE_VERSION) -> Path:
+        directory = self.package_path(self.db.add_stable(version))
+        os.makedirs(directory, exist_ok=True)
+        return directory
+
+    def prepare_nightly(self) -> Path:
+        directory = self.package_path(self.db.add_nightly())
+        os.makedirs(directory, exist_ok=True)
+        return directory
+
+    def remove_package(self, identifier: int):
+        self.db.remove_by_id(identifier)
+        shutil.rmtree(self.package_path(identifier))
+
+    def rollback(self):
+        identifier = self.db.rollback()
+        self.switch(identifier)
+
+    def history(self):
+        return self.db.history()
+
+    def switch(self, identifier:int):
+        if self.valid_package_identifier(identifier):
+            self.invalid_identifier(identifier)
+        Logger.progress(f"Switching TeXbld to {identifier}...")
+        self.db.switch(identifier)
+        os.symlink(self.runner_path(identifier), self.texbld_symlink())
+        Logger.success()
 
 
 class Manager:
@@ -163,7 +231,7 @@ class Manager:
     def virtualenv_path(self):
         return self.root / "virtualenv.pyz"
 
-    def install_venv(self):
+    def install_virtualenv(self):
         if not self.virtualenv_path().exists():
             python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
             virtualenv_bootstrap_url = (
@@ -178,7 +246,7 @@ class Manager:
         pass
 
     # use pypi
-    def install_stable(self, version: str):
+    def install_stable(self, version: str=LATEST_STABLE_VERSION):
         pass
 
 
