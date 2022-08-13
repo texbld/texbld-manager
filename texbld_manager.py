@@ -9,7 +9,11 @@ import shutil
 import sqlite3
 import stat
 
-LATEST_STABLE_VERSION = "0.3.0"
+STABLE_VERSIONS = [
+    "0.3.0",
+    "0.2.1",
+    "0.1.2"
+]
 
 
 class Logger:
@@ -47,8 +51,8 @@ def check_version():
         Logger.success()
 
 
-def execute(cmd: list):
-    res = subprocess.run(cmd)
+def execute(*cmd: str | Path):
+    res = subprocess.run(list(cmd))
     if res.returncode != 0:
         Logger.error(f"Subprocess {cmd} exited with status {res.returncode}")
 
@@ -96,7 +100,7 @@ class DB:
         self.cursor.execute("INSERT INTO pkgs(version) VALUES('nightly');")
         return self.cursor.lastrowid or 0
 
-    def add_stable(self, version: str = LATEST_STABLE_VERSION) -> int:
+    def add_stable(self, version: str = STABLE_VERSIONS[0]) -> int:
         self.cursor.execute("INSERT INTO pkgs(version) VALUES(?);", (version,))
         return self.cursor.lastrowid or 0
 
@@ -163,10 +167,11 @@ class DB:
                 ORDER BY current DESC, used_at DESC, id DESC LIMIT 20;
         """).fetchall()
 
+
 class ShellScriptWriter:
 
     def __init__(self, store: 'Store', identifier: int):
-        _,_,_,_,version = store.db.get_by_id(identifier)
+        _, _, _, _, version = store.db.get_by_id(identifier)
         self.nightly = (version == 'nightly')
         self.path = store.package_path(identifier)
 
@@ -174,12 +179,13 @@ class ShellScriptWriter:
         if self.nightly:
             return f"#!/bin/sh\n{sys.executable} {self.path / 'texbld.pyz'}"
         else:
-            return f"#!/bin/sh\n{self.path / 'bin' / 'texbld'}"
-    
+            return f"#!/bin/sh\n{self.path / 'venv' / 'bin' / 'texbld'}"
+
     def write_script(self, path: Path):
         with open(path, "w") as w:
             w.write(self.script())
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
+
 
 class Store:
 
@@ -197,13 +203,14 @@ class Store:
     def package_path(self, identifier: int):
         return (self.root / "store" / str(identifier)).absolute()
 
-    def valid_package_identifier(self, identifier:int):
+    def valid_package_identifier(self, identifier: int):
         return (self.package_path(identifier)).is_dir()
-    
-    def invalid_identifier(self, identifier:int):
-        Logger.error(f"{self.package_path(identifier)} is invalid. Either roll back or switch.")
 
-    def prepare_stable(self, version=LATEST_STABLE_VERSION) -> Path:
+    def invalid_identifier(self, identifier: int):
+        Logger.error(
+            f"{self.package_path(identifier)} is invalid. Either roll back or switch.")
+
+    def prepare_stable(self, version=STABLE_VERSIONS[0]) -> Path:
         directory = self.package_path(self.db.add_stable(version))
         os.makedirs(directory, exist_ok=True)
         return directory
@@ -224,7 +231,7 @@ class Store:
     def history(self):
         return self.db.history()
 
-    def switch(self, identifier:int):
+    def switch(self, identifier: int):
         if self.valid_package_identifier(identifier):
             self.invalid_identifier(identifier)
         Logger.progress(f"Switching TeXbld to {identifier}...")
@@ -236,8 +243,8 @@ class Store:
 class Manager:
 
     def __init__(self, root: Path):
-        self.root = root
-        self.db = DB(self.root)
+        self.root = root.absolute()
+        self.store = Store(self.root)
         os.makedirs(self.root, exist_ok=True)
 
     def virtualenv_path(self):
@@ -255,11 +262,26 @@ class Manager:
 
     # download from github releases
     def install_nightly(self):
-        pass
+        path = self.store.prepare_nightly()
+        nightly_url = (
+            f"https://github.com/texbld/texbld/releases/download/nightly/texbld.pyz"
+        )
+        (path / "texbld.pyz").write_bytes(
+            urllib.request.urlopen(nightly_url).read()
+        )
 
     # use pypi
-    def install_stable(self, version: str=LATEST_STABLE_VERSION):
-        pass
+    def install_stable(self, version: str = STABLE_VERSIONS[0]):
+        if version not in STABLE_VERSIONS:
+            Logger.error(
+                f"{version} is not in the list of recommended stable versions: {STABLE_VERSIONS}")
+        self.install_virtualenv()
+        path = self.store.prepare_stable(version)
+        execute(sys.executable, self.virtualenv_path(), path / "venv")
+        execute(path / "venv" / "bin" / "pip", "install", f"texbld=={version}")
+
+    def remove(self, identifier: int):
+        self.store.remove_package(identifier)
 
 
 if __name__ == "__main__":
