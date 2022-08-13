@@ -7,6 +7,7 @@ import urllib.request
 import subprocess
 import shutil
 import sqlite3
+import stat
 
 LATEST_STABLE_VERSION = "0.3.0"
 
@@ -162,6 +163,23 @@ class DB:
                 ORDER BY current DESC, used_at DESC, id DESC LIMIT 20;
         """).fetchall()
 
+class ShellScriptWriter:
+
+    def __init__(self, store: 'Store', identifier: int):
+        _,_,_,_,version = store.db.get_by_id(identifier)
+        self.nightly = (version == 'nightly')
+        self.path = store.package_path(identifier)
+
+    def script(self):
+        if self.nightly:
+            return f"#!/bin/sh\n{sys.executable} {self.path / 'texbld.pyz'}"
+        else:
+            return f"#!/bin/sh\n{self.path / 'bin' / 'texbld'}"
+    
+    def write_script(self, path: Path):
+        with open(path, "w") as w:
+            w.write(self.script())
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
 class Store:
 
@@ -172,21 +190,15 @@ class Store:
     def __del__(self):
         self.db.close()
 
-    def texbld_symlink(self):
+    def texbld_script(self):
         path = self.root / "bin" / "texbld"
-        os.makedirs(path.parent, exist_ok=True)
         return path
 
     def package_path(self, identifier: int):
-        return self.root / "store" / str(identifier)
-
-    def runner_path(self, identifier: int):
-        return self.package_path(identifier) / "texbld-run.sh"
+        return (self.root / "store" / str(identifier)).absolute()
 
     def valid_package_identifier(self, identifier:int):
-        runner = self.runner_path(identifier)
-        # check a runner script is present and is executable.
-        return runner.is_file() and os.access(runner, os.X_OK)
+        return (self.package_path(identifier)).is_dir()
     
     def invalid_identifier(self, identifier:int):
         Logger.error(f"{self.package_path(identifier)} is invalid. Either roll back or switch.")
@@ -217,7 +229,7 @@ class Store:
             self.invalid_identifier(identifier)
         Logger.progress(f"Switching TeXbld to {identifier}...")
         self.db.switch(identifier)
-        os.symlink(self.runner_path(identifier), self.texbld_symlink())
+        ShellScriptWriter(self, identifier).write_script(self.texbld_script())
         Logger.success()
 
 
