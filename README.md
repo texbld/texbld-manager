@@ -11,6 +11,14 @@ curl -sSL https://raw.githubusercontent.com/texbld/texbld-manager/master/texbld-
 
 Follow the install script and add the installed directory to your $PATH.
 
+## Upgrading
+
+```
+texbld-manager setup
+```
+
+This will install the master branch of texbld-manager from GitHub.
+
 ## Code Requirements
 
 - Zero dependencies outside of the built-in python modules
