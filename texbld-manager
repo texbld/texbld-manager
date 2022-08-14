@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import stat
 from argparse import ArgumentParser
+import inspect
 
 STABLE_VERSIONS = [
     "0.3.0",
@@ -190,6 +191,7 @@ class Store:
     def __init__(self, root: Path):
         self.root = root
         os.makedirs(self.root, exist_ok=True)
+        os.makedirs(self.root / "bin", exist_ok=True)
         self.db = DB(self.root)
 
     def texbld_script(self):
@@ -297,6 +299,13 @@ class Manager:
         subparser.add_parser("list", description='List TeXbld builds', aliases=['ls']).set_defaults(func=lambda _: (self.list_nightlies(_), self.list_stables(_)))
         subparser.add_parser("rollback", description='Rollback a TeXbld build', aliases=['rb']).set_defaults(func=self.rollback)
         subparser.add_parser("history", description='Rollback a TeXbld build', aliases=['h']).set_defaults(func=self.history)
+        subparser.add_parser("setup", description='Setup TeXbld-manager').set_defaults(func=self.setup)
+
+    def setup(self, _):
+        path = Path(self.store.root) / "bin" / "texbld-manager"
+        source = inspect.getsource(sys.modules[__name__])
+        path.write_text(source)
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
     def install(self, args):
         version = args.version
@@ -350,10 +359,9 @@ def select_directory():
     if dr := os.environ.get("TEXBLD_HOME", None):
         return Path(dr)
     elif sys.platform == "darwin":
-        return Path(os.path.expanduser("~/Library/Application Support/pypoetry"))
+        return Path(os.path.expanduser("~/Library/Application Support/texbld"))
     else:
         return Path(os.path.expanduser("~/.local/share/texbld"))
-
 
 def main():
     parser = ArgumentParser()
