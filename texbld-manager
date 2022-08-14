@@ -173,9 +173,9 @@ class ShellScriptWriter:
 
     def script(self):
         if self.nightly:
-            return f"#!/bin/sh\n{sys.executable} {self.path / 'texbld.pyz'} $@"
+            return f"#!/bin/sh\n{Path(sys.executable).as_posix()} {(self.path / 'texbld.pyz').as_posix()} $@"
         else:
-            return f"#!/bin/sh\n{self.path / 'venv' / 'bin' / 'texbld'} $@"
+            return f"#!/bin/sh\n{(self.path / 'venv' / 'bin' / 'texbld').as_posix()} $@"
 
     def write_script(self, path: Path):
         os.makedirs(path.parent, exist_ok=True)
