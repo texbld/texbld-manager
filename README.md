@@ -9,6 +9,8 @@ Check TODO.md to see upcoming features of this project.
 curl -sSL https://raw.githubusercontent.com/texbld/texbld-manager/master/texbld-manager | python - setup
 ```
 
+Follow the install script and add the installed directory to your $PATH.
+
 ## Code Requirements
 
 - Zero dependencies outside of the built-in python modules

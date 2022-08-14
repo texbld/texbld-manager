@@ -310,6 +310,7 @@ class Manager:
         path.write_bytes(source)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
         Logger.success()
+        print(f"You should now consider adding {self.store.root} to your $PATH.")
 
     def install(self, args):
         version = args.version
@@ -336,7 +337,7 @@ class Manager:
             print("-"*20)
             for result in query_result:
                 id,created_at,_,current,_ = result
-                print(f"{'*' if current else ''} {id} : {created_at}")
+                print(f"{'*' if current else ' '} {id} : {created_at}")
 
     def list_stables(self, _):
         query_result = self.store.db.list_stables()
@@ -345,7 +346,7 @@ class Manager:
             print("-"*20)
             for result in query_result:
                 id,created_at,_,current,version = result
-                print(f"{'*' if current else ''} {id} : {version}-{created_at}")
+                print(f"{'*' if current else ' '} {id} : {version}-{created_at}")
 
     def history(self, _):
         query_result = self.store.db.history()
@@ -354,7 +355,7 @@ class Manager:
             print("-"*20)
             for result in query_result:
                 id,created_at,used_at,current,version = result
-                print(f"{'*' if current else ''} {id} : {version}-{created_at} : Last used {used_at}")
+                print(f"{'*' if current else ' '} {id} : {version}-{created_at} : Last used {used_at}")
 
 def select_directory():
     if dr := os.environ.get("TEXBLD_HOME", None):
