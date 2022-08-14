@@ -63,7 +63,6 @@ class DB:
         else:
             connection = sqlite3.connect(root / "texbld.db")
         self.cursor = connection.cursor()
-        self.initialize_db()
 
     # cleanup
     def close(self):
@@ -298,13 +297,19 @@ class Manager:
         subparser.add_parser("list", description='List TeXbld builds', aliases=['ls']).set_defaults(func=lambda _: (self.list_nightlies(_), self.list_stables(_)))
         subparser.add_parser("rollback", description='Rollback a TeXbld build', aliases=['rb']).set_defaults(func=self.rollback)
         subparser.add_parser("history", description='Rollback a TeXbld build', aliases=['h']).set_defaults(func=self.history)
-        subparser.add_parser("setup", description='Setup TeXbld-manager').set_defaults(func=self.setup)
+        subparser.add_parser("setup", description='Setup TeXbld-manager and the database').set_defaults(func=self.setup)
 
     def setup(self, _):
+        Logger.progress("Setting up the sqlite db...")
+        self.store.db.initialize_db()
+        Logger.success()
+
+        Logger.progress(f"Installing manager to {self.store.root}/bin/texbld-manager ...")
         path = Path(self.store.root) / "bin" / "texbld-manager"
         source = urllib.request.urlopen("https://raw.githubusercontent.com/texbld/texbld-manager/master/texbld-manager").read()
         path.write_bytes(source)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        Logger.success()
 
     def install(self, args):
         version = args.version
@@ -332,7 +337,6 @@ class Manager:
             for result in query_result:
                 id,created_at,_,current,_ = result
                 print(f"{'*' if current else ''} {id} : {created_at}")
-            print()
 
     def list_stables(self, _):
         query_result = self.store.db.list_stables()
@@ -342,7 +346,6 @@ class Manager:
             for result in query_result:
                 id,created_at,_,current,version = result
                 print(f"{'*' if current else ''} {id} : {version}-{created_at}")
-            print()
 
     def history(self, _):
         query_result = self.store.db.history()
@@ -352,7 +355,6 @@ class Manager:
             for result in query_result:
                 id,created_at,used_at,current,version = result
                 print(f"{'*' if current else ''} {id} : {version}-{created_at} : Last used {used_at}")
-            print()
 
 def select_directory():
     if dr := os.environ.get("TEXBLD_HOME", None):
