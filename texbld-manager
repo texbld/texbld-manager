@@ -49,7 +49,7 @@ def check_version():
         Logger.error("Incompatible Python version (must be ^3.9)")
 
 
-def execute(*cmd: str | Path):
+def execute(*cmd):
     res = subprocess.run(list(cmd))
     if res.returncode != 0:
         Logger.error(f"Subprocess {cmd} exited with status {res.returncode}")
@@ -57,7 +57,7 @@ def execute(*cmd: str | Path):
 
 class DB:
 
-    def __init__(self, root: Path | None = None):
+    def __init__(self, root=None):
         if root is None:
             connection = sqlite3.connect(":memory:")
         else:
@@ -148,7 +148,7 @@ class DB:
                 ORDER BY current DESC, used_at DESC, id DESC LIMIT 1;
         """).fetchone()
         if result:
-            identifier, version = result
+            identifier, _ = result
             self.switch(identifier)
             return identifier
         else:

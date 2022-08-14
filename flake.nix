@@ -10,7 +10,7 @@
       let pkgs = import nixpkgs { inherit system; };
       in {
         devShell = pkgs.mkShell {
-          buildInputs = with pkgs; [ python3 python3Packages.autopep8 scc ];
+          buildInputs = with pkgs; [ python39 python39Packages.autopep8 scc ];
         };
         defaultPackage = pkgs.stdenv.mkDerivation rec {
           name = "texbld-manager";
