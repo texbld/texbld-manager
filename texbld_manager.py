@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import sqlite3
 import stat
+from argparse import ArgumentParser
 
 STABLE_VERSIONS = [
     "0.3.0",
@@ -28,27 +29,24 @@ class Logger:
 
     @classmethod
     def error(cls, text):
-        sys.stdout.write(cls.color(cls.RED, "Error:") + " " + text + "\n")
+        sys.stderr.write(cls.color(cls.RED, "Error:") + " " + text + "\n")
         if __name__ == "__main__":
             sys.exit(1)
 
     @classmethod
     def progress(cls, text):
-        sys.stdout.write(cls.color(cls.YELLOW, "Progress") + " " + text + " ")
+        sys.stderr.write(cls.color(cls.YELLOW, "Progress") + " " + text + " ")
 
     @classmethod
     def success(cls):
-        sys.stdout.write(cls.color(cls.GREEN, "Done") + "\n")
+        sys.stderr.write(cls.color(cls.GREEN, "Done") + "\n")
 
 
 def check_version():
     from platform import python_version_tuple
-    Logger.progress("Checking python version...")
     MAJOR, MINOR, _ = python_version_tuple()
     if int(MAJOR) != 3 or int(MINOR) < 9:
         Logger.error("Incompatible Python version (must be ^3.9)")
-    else:
-        Logger.success()
 
 
 def execute(*cmd: str | Path):
@@ -78,9 +76,6 @@ class DB:
     def __exit__(self):
         self.close()
 
-    def __del__(self):
-        self.close()
-
     def initialize_db(self):
         self.cursor.executescript(
             """
@@ -98,10 +93,12 @@ class DB:
 
     def add_nightly(self) -> int:
         self.cursor.execute("INSERT INTO pkgs(version) VALUES('nightly');")
+        self.cursor.connection.commit()
         return self.cursor.lastrowid or 0
 
     def add_stable(self, version: str = STABLE_VERSIONS[0]) -> int:
         self.cursor.execute("INSERT INTO pkgs(version) VALUES(?);", (version,))
+        self.cursor.connection.commit()
         return self.cursor.lastrowid or 0
 
     def get_by_id(self, identifier: int):
@@ -109,17 +106,17 @@ class DB:
             SELECT * from pkgs WHERE id=?;
         """, (identifier,)).fetchone()
 
-    def get_nightlies(self):
+    def list_nightlies(self):
         return self.cursor.execute("""
             SELECT * FROM pkgs WHERE version='nightly' ORDER BY
-            used DESC, created_at DESC, id DESC
+            used_at DESC, created_at DESC, id DESC
             LIMIT 10;
         """).fetchall()
 
-    def get_stables(self):
+    def list_stables(self):
         return self.cursor.execute("""
             SELECT * from pkgs WHERE version != 'nightly' ORDER BY 
-            used DESC, created_at DESC, id DESC
+            used_at DESC, created_at DESC, id DESC
             LIMIT 10;
         """).fetchall()
 
@@ -127,6 +124,7 @@ class DB:
         if not self.get_by_id(identifier):
             Logger.error(f"TeXbld package with id {identifier} not found.")
         self.cursor.execute("DELETE FROM pkgs WHERE id=?;", (identifier,))
+        self.cursor.connection.commit()
 
     def switch(self, identifier: int):
         if not self.get_by_id(identifier):
@@ -142,6 +140,7 @@ class DB:
                     SET used_at=datetime(), current=1
                 WHERE id=?
             """, (identifier,))
+            self.cursor.connection.commit()
 
     def rollback(self) -> int:
         result = self.cursor.execute("""
@@ -151,12 +150,10 @@ class DB:
         """).fetchone()
         if result:
             identifier, version = result
-            Logger.progress(f"Switching to texbld {identifier}-{version}...")
             self.switch(identifier)
-            Logger.success()
             return identifier
         else:
-            Logger.error("Nothing to rollback to. Consider switching")
+            Logger.error("Nothing to rollback to. Consider switching.")
             # unreachable
             return -1
 
@@ -182,6 +179,7 @@ class ShellScriptWriter:
             return f"#!/bin/sh\n{self.path / 'venv' / 'bin' / 'texbld'}"
 
     def write_script(self, path: Path):
+        os.makedirs(path.parent, exist_ok=True)
         with open(path, "w") as w:
             w.write(self.script())
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -191,10 +189,8 @@ class Store:
 
     def __init__(self, root: Path):
         self.root = root
+        os.makedirs(self.root, exist_ok=True)
         self.db = DB(self.root)
-
-    def __del__(self):
-        self.db.close()
 
     def texbld_script(self):
         path = self.root / "bin" / "texbld"
@@ -220,7 +216,7 @@ class Store:
         os.makedirs(directory, exist_ok=True)
         return directory
 
-    def remove_package(self, identifier: int):
+    def remove(self, identifier: int):
         self.db.remove_by_id(identifier)
         shutil.rmtree(self.package_path(identifier))
 
@@ -232,20 +228,14 @@ class Store:
         return self.db.history()
 
     def switch(self, identifier: int):
-        if self.valid_package_identifier(identifier):
+        if not self.valid_package_identifier(identifier):
             self.invalid_identifier(identifier)
         Logger.progress(f"Switching TeXbld to {identifier}...")
         self.db.switch(identifier)
         ShellScriptWriter(self, identifier).write_script(self.texbld_script())
         Logger.success()
 
-
-class Manager:
-
-    def __init__(self, root: Path):
-        self.root = root.absolute()
-        self.store = Store(self.root)
-        os.makedirs(self.root, exist_ok=True)
+    # installation methods
 
     def virtualenv_path(self):
         return self.root / "virtualenv.pyz"
@@ -256,13 +246,15 @@ class Manager:
             virtualenv_bootstrap_url = (
                 f"https://bootstrap.pypa.io/virtualenv/{python_version}/virtualenv.pyz"
             )
+            Logger.progress(f"Creating a virtual environment with {virtualenv_bootstrap_url}...")
             self.virtualenv_path().write_bytes(
                 urllib.request.urlopen(virtualenv_bootstrap_url).read()
             )
+            Logger.success()
 
     # download from github releases
     def install_nightly(self):
-        path = self.store.prepare_nightly()
+        path = self.prepare_nightly()
         nightly_url = (
             f"https://github.com/texbld/texbld/releases/download/nightly/texbld.pyz"
         )
@@ -276,13 +268,93 @@ class Manager:
             Logger.error(
                 f"{version} is not in the list of recommended stable versions: {STABLE_VERSIONS}")
         self.install_virtualenv()
-        path = self.store.prepare_stable(version)
+        path = self.prepare_stable(version)
         execute(sys.executable, self.virtualenv_path(), path / "venv")
         execute(path / "venv" / "bin" / "pip", "install", f"texbld=={version}")
 
-    def remove(self, identifier: int):
-        self.store.remove_package(identifier)
+class Manager:
+    root = Path(__file__).parent / "tests" / "texbld"
+    #store = Store(Path.home() / ".texbld")
+    store = Store(Path(__file__).parent / "tests" / "texbld")
 
+    @classmethod
+    def initialize_argparse(cls, parser: ArgumentParser):
+        parser.__init__(prog="texbld_manager", description="The official TeXbld version manager")
+        parser.set_defaults(func=lambda _: parser.print_help())
+        subparser = parser.add_subparsers()
+
+        install = subparser.add_parser("install", description="install a new TeXbld build", aliases=['i'])
+        install.set_defaults(func=cls.install)
+        install.add_argument("version")
+
+        switch = subparser.add_parser("switch", description="switch to another TeXbld build", aliases=['s'])
+        switch.set_defaults(func=cls.switch)
+        switch.add_argument("identifier", type=int)
+
+        remove = subparser.add_parser("remove", description="remove an existing TeXbld build", aliases=['rm'])
+        remove.set_defaults(func=cls.remove)
+        remove.add_argument("identifier", type=int)
+
+        subparser.add_parser("list", description='List TeXbld builds', aliases=['ls']).set_defaults(func=lambda _: (cls.list_nightlies(_), cls.list_stables(_)))
+        subparser.add_parser("rollback", description='Rollback a TeXbld build', aliases=['rb']).set_defaults(func=cls.rollback)
+        subparser.add_parser("history", description='Rollback a TeXbld build', aliases=['h']).set_defaults(func=cls.history)
+
+    @classmethod
+    def install(cls, args):
+        version = args.version
+        if version.lower() == "nightly":
+            cls.store.install_nightly()
+        else:
+            cls.store.install_stable(version)
+
+    @classmethod
+    def remove(cls, args):
+        identifier = args.identifier
+        cls.store.remove(identifier)
+
+    @classmethod
+    def switch(cls, args):
+        identifier = args.identifier
+        cls.store.switch(identifier)
+
+    @classmethod
+    def rollback(cls, _):
+        cls.store.rollback()
+
+    @classmethod
+    def list_nightlies(cls, _):
+        query_result = cls.store.db.list_nightlies()
+        if query_result:
+            print("Nightly TeXbld builds")
+            print("-"*20)
+            for result in query_result:
+                id,created_at,_,current,_ = result
+                print(f"{'*' if current else ''} {id} : {created_at}")
+            print()
+
+    @classmethod
+    def list_stables(cls, _):
+        query_result = cls.store.db.list_stables()
+        if query_result:
+            print("Stable TeXbld builds")
+            print("-"*20)
+            for result in query_result:
+                id,created_at,_,current,version = result
+                print(f"{'*' if current else ''} {id} : {version}-{created_at}")
+            print()
+
+    @classmethod
+    def history(cls, _):
+        print("TeXbld History")
+        print("-"*20)
+        for result in cls.store.db.history():
+            id,created_at,used_at,current,version = result
+            print(f"{'*' if current else ''} {id} : {version}-{created_at} : Last used {used_at}")
+        print()
 
 if __name__ == "__main__":
     check_version()
+    parser = ArgumentParser()
+    Manager.initialize_argparse(parser)
+    args = parser.parse_args()
+    args.func(args)
