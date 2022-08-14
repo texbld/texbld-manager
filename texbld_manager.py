@@ -273,9 +273,7 @@ class Store:
         execute(path / "venv" / "bin" / "pip", "install", f"texbld=={version}")
 
 class Manager:
-    root = Path(__file__).parent / "tests" / "texbld"
-    #store = Store(Path.home() / ".texbld")
-    store = Store(Path(__file__).parent / "tests" / "texbld")
+    store = Store(Path.home() / ".texbld")
 
     @classmethod
     def initialize_argparse(cls, parser: ArgumentParser):
