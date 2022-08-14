@@ -12,6 +12,16 @@
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [ python3 python3Packages.autopep8 scc ];
         };
+        defaultPackage = pkgs.stdenv.mkDerivation rec {
+          name = "texbld-manager";
+          version = "";
+          src = ./.;
+          phases = ["installPhase"];
+          installPhase = ''
+            mkdir -p $out/bin
+            cp $src/texbld-manager $out/bin
+          '';
+        };
         formatter = nixpkgs.legacyPackages."${system}".nixfmt;
       });
 }
