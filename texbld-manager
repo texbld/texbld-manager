@@ -9,7 +9,6 @@ import shutil
 import sqlite3
 import stat
 from argparse import ArgumentParser
-import inspect
 
 STABLE_VERSIONS = [
     "0.3.0",
@@ -303,7 +302,7 @@ class Manager:
 
     def setup(self, _):
         path = Path(self.store.root) / "bin" / "texbld-manager"
-        source = inspect.getsource(sys.modules[__name__])
+        source = urllib.request.urlopen("https://raw.githubusercontent.com/texbld/texbld-manager/master/texbld-manager").read()
         path.write_text(source)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
