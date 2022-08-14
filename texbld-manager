@@ -273,55 +273,51 @@ class Store:
         execute(path / "venv" / "bin" / "pip", "install", f"texbld=={version}")
 
 class Manager:
-    store = Store(Path.home() / ".texbld")
 
-    @classmethod
-    def initialize_argparse(cls, parser: ArgumentParser):
+    def __init__(self, root: Path):
+        self.store = Store(root)
+
+    def initialize_argparse(self, parser: ArgumentParser):
         parser.__init__(prog="texbld_manager", description="The official TeXbld version manager")
         parser.set_defaults(func=lambda _: parser.print_help())
         subparser = parser.add_subparsers()
 
         install = subparser.add_parser("install", description="install a new TeXbld build", aliases=['i'])
-        install.set_defaults(func=cls.install)
-        install.add_argument("version")
+        install.set_defaults(func=self.install)
+        install.add_argument("--version", "-v", default=STABLE_VERSIONS[0], required=False)
 
         switch = subparser.add_parser("switch", description="switch to another TeXbld build", aliases=['s'])
-        switch.set_defaults(func=cls.switch)
+        switch.set_defaults(func=self.switch)
         switch.add_argument("identifier", type=int)
 
         remove = subparser.add_parser("remove", description="remove an existing TeXbld build", aliases=['rm'])
-        remove.set_defaults(func=cls.remove)
+        remove.set_defaults(func=self.remove)
         remove.add_argument("identifier", type=int)
 
-        subparser.add_parser("list", description='List TeXbld builds', aliases=['ls']).set_defaults(func=lambda _: (cls.list_nightlies(_), cls.list_stables(_)))
-        subparser.add_parser("rollback", description='Rollback a TeXbld build', aliases=['rb']).set_defaults(func=cls.rollback)
-        subparser.add_parser("history", description='Rollback a TeXbld build', aliases=['h']).set_defaults(func=cls.history)
+        subparser.add_parser("list", description='List TeXbld builds', aliases=['ls']).set_defaults(func=lambda _: (self.list_nightlies(_), self.list_stables(_)))
+        subparser.add_parser("rollback", description='Rollback a TeXbld build', aliases=['rb']).set_defaults(func=self.rollback)
+        subparser.add_parser("history", description='Rollback a TeXbld build', aliases=['h']).set_defaults(func=self.history)
 
-    @classmethod
-    def install(cls, args):
+    def install(self, args):
         version = args.version
         if version.lower() == "nightly":
-            cls.store.install_nightly()
+            self.store.install_nightly()
         else:
-            cls.store.install_stable(version)
+            self.store.install_stable(version)
 
-    @classmethod
-    def remove(cls, args):
+    def remove(self, args):
         identifier = args.identifier
-        cls.store.remove(identifier)
+        self.store.remove(identifier)
 
-    @classmethod
-    def switch(cls, args):
+    def switch(self, args):
         identifier = args.identifier
-        cls.store.switch(identifier)
+        self.store.switch(identifier)
 
-    @classmethod
-    def rollback(cls, _):
-        cls.store.rollback()
+    def rollback(self, _):
+        self.store.rollback()
 
-    @classmethod
-    def list_nightlies(cls, _):
-        query_result = cls.store.db.list_nightlies()
+    def list_nightlies(self, _):
+        query_result = self.store.db.list_nightlies()
         if query_result:
             print("Nightly TeXbld builds")
             print("-"*20)
@@ -330,9 +326,8 @@ class Manager:
                 print(f"{'*' if current else ''} {id} : {created_at}")
             print()
 
-    @classmethod
-    def list_stables(cls, _):
-        query_result = cls.store.db.list_stables()
+    def list_stables(self, _):
+        query_result = self.store.db.list_stables()
         if query_result:
             print("Stable TeXbld builds")
             print("-"*20)
@@ -341,18 +336,31 @@ class Manager:
                 print(f"{'*' if current else ''} {id} : {version}-{created_at}")
             print()
 
-    @classmethod
-    def history(cls, _):
-        print("TeXbld History")
-        print("-"*20)
-        for result in cls.store.db.history():
-            id,created_at,used_at,current,version = result
-            print(f"{'*' if current else ''} {id} : {version}-{created_at} : Last used {used_at}")
-        print()
+    def history(self, _):
+        query_result = self.store.db.history()
+        if query_result:
+            print("TeXbld History")
+            print("-"*20)
+            for result in query_result:
+                id,created_at,used_at,current,version = result
+                print(f"{'*' if current else ''} {id} : {version}-{created_at} : Last used {used_at}")
+            print()
+
+def select_directory():
+    if dr := os.environ.get("TEXBLD_HOME", None):
+        return Path(dr)
+    elif sys.platform == "darwin":
+        return Path(os.path.expanduser("~/Library/Application Support/pypoetry"))
+    else:
+        return Path(os.path.expanduser("~/.local/share/texbld"))
+
+
+def main():
+    parser = ArgumentParser()
+    Manager(select_directory()).initialize_argparse(parser)
+    args = parser.parse_args()
+    args.func(args)
 
 if __name__ == "__main__":
     check_version()
-    parser = ArgumentParser()
-    Manager.initialize_argparse(parser)
-    args = parser.parse_args()
-    args.func(args)
+    main()
