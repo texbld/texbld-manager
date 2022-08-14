@@ -303,7 +303,7 @@ class Manager:
     def setup(self, _):
         path = Path(self.store.root) / "bin" / "texbld-manager"
         source = urllib.request.urlopen("https://raw.githubusercontent.com/texbld/texbld-manager/master/texbld-manager").read()
-        path.write_text(source)
+        path.write_bytes(source)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
     def install(self, args):
