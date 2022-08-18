@@ -16,7 +16,7 @@
           name = "texbld-manager";
           version = "";
           src = ./.;
-          phases = ["installPhase"];
+          buildInputs = with pkgs; [python39];
           installPhase = ''
             mkdir -p $out/bin
             cp $src/texbld-manager $out/bin
