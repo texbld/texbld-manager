@@ -311,7 +311,7 @@ class Manager:
         path.write_bytes(source)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
         Logger.success()
-        print(f"You should now consider adding {self.store.root} to your $PATH.")
+        print(f"You should now consider adding {self.store.root}/bin to your $PATH.")
 
     def install(self, args):
         version = args.version
